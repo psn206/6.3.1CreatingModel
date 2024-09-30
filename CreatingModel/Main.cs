@@ -1,5 +1,6 @@
 ﻿using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
 using System;
@@ -17,15 +18,14 @@ namespace CreatingModel
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
             Document doc = commandData.Application.ActiveUIDocument.Document;
-
             Level level1 = GetLevel("Уровень 1", doc);
             Level level2 = GetLevel("Уровень 2", doc);
-           List<Wall> walls= ConstructionWalls(10000, 5000, level1, level2, doc);
+            List<Wall> walls = ConstructionWalls(10000, 5000, level1, level2, doc);
             AddDoor(doc, walls[0], level1);
             AddWindow(doc, walls[1], level1);
             AddWindow(doc, walls[2], level1);
             AddWindow(doc, walls[3], level1);
-
+            AddRoof(doc, walls, level2);
             return Result.Succeeded;
         }
 
@@ -86,12 +86,12 @@ namespace CreatingModel
             LocationCurve hostCurve = wall.Location as LocationCurve;
             XYZ point1 = hostCurve.Curve.GetEndPoint(0);
             XYZ point2 = hostCurve.Curve.GetEndPoint(1);
-            XYZ point= (point1 + point2)/2;
+            XYZ point = (point1 + point2) / 2;
 
 
-            Transaction ts = new Transaction(doc,"Добавление двири") ;
+            Transaction ts = new Transaction(doc, "Добавление двири");
             ts.Start();
-            if(!doorType.IsActive)
+            if (!doorType.IsActive)
                 doorType.Activate();
             doc.Create.NewFamilyInstance(point, doorType, wall, level, StructuralType.NonStructural);
             ts.Commit();
@@ -111,12 +111,12 @@ namespace CreatingModel
             double wallHeight = wall.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM).AsDouble();
             LocationCurve hostCurve = wall.Location as LocationCurve;
             XYZ point1 = hostCurve.Curve.GetEndPoint(0);
-            point1  = point1 +  new XYZ ( 0,0, wallHeight / 2);
+            point1 = point1 + new XYZ(0, 0, wallHeight / 2);
 
             XYZ point2 = hostCurve.Curve.GetEndPoint(1);
-            point2 = point2 + new XYZ(0, 0, wallHeight/2);
+            point2 = point2 + new XYZ(0, 0, wallHeight / 2);
 
-           XYZ point = (point1 + point2) / 2;
+            XYZ point = (point1 + point2) / 2;
 
             Transaction ts = new Transaction(doc, "Добавление окна");
             ts.Start();
@@ -126,8 +126,35 @@ namespace CreatingModel
             ts.Commit();
         }
 
+        public static void AddRoof(Document doc, List<Wall> walls, Level level)
+        {
+            var roofType = new FilteredElementCollector(doc)
+                .OfClass(typeof(RoofType))
+                .OfType<RoofType>()
+                .Where(x => x.Name.Equals("Теплая крыша - Деревянный брус"))
+                .Where(x => x.FamilyName.Equals("Базовая крыша"))
+                .FirstOrDefault();
 
+            double dt = walls[0].Width / 2;
+            double wallHeight = walls[0].get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM).AsDouble();
+            LocationCurve hostCurve1 = walls[0].Location as LocationCurve;
+            LocationCurve hostCurve2 = walls[2].Location as LocationCurve;
+            LocationCurve hostCurve3 = walls[1].Location as LocationCurve;
+            XYZ point1 = hostCurve1.Curve.GetEndPoint(0);
+            point1 = point1 + new XYZ(0, -dt, wallHeight);
+            XYZ point2 = hostCurve2.Curve.GetEndPoint(0);
+            point2 = point2 + new XYZ(0, dt, wallHeight);
+            XYZ point3 = (hostCurve3.Curve.GetEndPoint(0) + hostCurve3.Curve.GetEndPoint(1)) / 2 + new XYZ(0, 0, 20);
 
+            CurveArray curveArray = new CurveArray();
+            curveArray.Append(Line.CreateBound(point1, point3));
+            curveArray.Append(Line.CreateBound(point3, point2));
 
+            Transaction ts = new Transaction(doc, "Добавление крыши");
+            ts.Start();
+            ReferencePlane plane = doc.Create.NewReferencePlane(XYZ.Zero, new XYZ(0, dt, 0), new XYZ(0, 0, dt), doc.ActiveView);
+            doc.Create.NewExtrusionRoof(curveArray, plane, level, roofType, -hostCurve1.Curve.Length / 2 - dt, hostCurve1.Curve.Length / 2 + dt);
+            ts.Commit();
+        }
     }
 }
